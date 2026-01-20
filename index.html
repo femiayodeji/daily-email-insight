@@ -6,93 +6,225 @@
     <style>
         body {
             font-family: 'Inter', 'Segoe UI', Arial, sans-serif;
-            background: #f6f7fb;
-            max-width: 420px;
-            margin: 48px auto;
-            padding: 32px 18px 32px 18px;
-            border-radius: 16px;
-            box-shadow: 0 4px 32px rgba(0,0,0,0.08);
+            background: #f5f7fa;
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
         }
-        h1 {
-            text-align: center;
-            color: #22223b;
-            font-size: 2.1rem;
+        .container {
+            display: flex;
+            flex: 1;
+            height: 90vh;
+            max-width: 1100px;
+            margin: 40px auto 0 auto;
+            background: #fff;
+            border-radius: 24px;
+            box-shadow: 0 8px 40px rgba(60,64,67,0.13);
+            overflow: hidden;
+        }
+        .summary-panel {
+            background: linear-gradient(135deg, #e3f0ff 0%, #f5f7fa 100%);
+            flex: 1.1;
+            padding: 36px 28px 36px 28px;
+            border-right: 1.5px solid #e3e8ee;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            min-width: 320px;
+        }
+        .summary-title {
+            font-size: 1.3rem;
             font-weight: 700;
-            margin-bottom: 2rem;
-            letter-spacing: -1px;
+            color: #2563eb;
+            margin-bottom: 18px;
         }
-        #login-section, #app-section {
-            margin-bottom: 1.5rem;
+        #summaryContent {
+            background: #fff;
+            border-radius: 14px;
+            box-shadow: 0 2px 12px rgba(60,64,67,0.07);
+            padding: 12px 12px;
+            min-height: 490px;
+            max-height: 490px;
+            width: 100%;
+            color: #23243a;
+            font-size: 0.98rem;
+            word-break: break-word;
+            animation: fadeIn 0.7s;
+            overflow-y: auto;
         }
-        input[type="text"] {
+        .summary-actions {
+            display: flex;
+            flex-direction: row;
+            gap: 10px;
+            justify-content: flex-end;
+            width: 100%;
+            margin-top: auto;
+            margin-bottom: 0;
+        }
+        .summary-actions button {
+            padding: 7px 14px;
+            font-size: 0.95rem;
+            border-radius: 7px;
+            border: none;
+            background: linear-gradient(90deg, #4f8cff 0%, #2563eb 100%);
+            color: #fff;
+            font-weight: 500;
+            cursor: pointer;
+            box-shadow: 0 1px 4px rgba(79,140,255,0.07);
+            transition: background 0.18s, box-shadow 0.18s;
+        }
+        .summary-actions button:disabled, #getSummaryBtn:disabled {
+            background: #e5e7eb !important;
+            color: #a1a1aa !important;
+            border: 1.5px solid #d1d5db !important;
+            cursor: not-allowed !important;
+            opacity: 0.7;
+            box-shadow: none !important;
+        }
+        #logoutBtn {
+            background: #fff0f0 !important;
+            color: #e11d48 !important;
+            font-size: 0.85rem !important;
+            border: 1.5px solid #e11d48 !important;
+            font-weight: 600;
+            padding: 6px 12px !important;
+            box-shadow: none !important;
+        }
+        #logoutBtn:hover {
+            background: #ffe4e6 !important;
+            color: #fff !important;
+            border: 1.5px solid #e11d48 !important;
+            font-weight: 700;
+        }
+        .summary-actions button:hover {
+            background: linear-gradient(90deg, #2563eb 0%, #4f8cff 100%);
+            box-shadow: 0 2px 8px rgba(79,140,255,0.13);
+        }
+        .chat-panel {
+            flex: 1.5;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            background: #f5f7fa;
+            padding: 0 0 0 0;
+            position: relative;
+        }
+        .chat-header {
+            padding: 28px 32px 0 32px;
+            font-size: 1.2rem;
+            font-weight: 600;
+            color: #2563eb;
+        }
+        #chatHistory {
+            flex: 1;
+            padding: 24px 32px 12px 32px;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+        .user, .assistant {
+            max-width: 70%;
+            padding: 12px 18px;
+            border-radius: 18px;
+            font-size: 1.08rem;
+            line-height: 1.5;
+            box-shadow: 0 2px 8px rgba(60,64,67,0.07);
+            animation: popIn 0.3s;
+        }
+        .user {
+            align-self: flex-end;
+            background: linear-gradient(90deg, #4f8cff 0%, #2563eb 100%);
+            color: #fff;
+        }
+        .assistant {
+            align-self: flex-start;
+            background: #fff;
+            color: #23243a;
+            border: 1.5px solid #e3e8ee;
+        }
+        .chat-input-row {
+            display: flex;
+            align-items: center;
+            padding: 18px 32px 24px 32px;
+            background: #f5f7fa;
+            border-top: 1.5px solid #e3e8ee;
+        }
+        #textInput {
+            flex: 1;
             padding: 13px 14px;
             border: 1.5px solid #e0e1e7;
             border-radius: 8px;
-            width: 100%;
-            margin-bottom: 14px;
             font-size: 1.08rem;
             background: #f9fafe;
+            margin-right: 12px;
             transition: border 0.2s;
         }
-        input[type="text"]:focus {
+        #textInput:focus {
             border: 1.5px solid #4f8cff;
             outline: none;
             background: #fff;
-        }
-        button {
-            padding: 13px 0;
-            margin: 10px 0;
-            width: 100%;
-            background: linear-gradient(90deg, #4f8cff 0%, #2563eb 100%);
-            color: #fff;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.08rem;
-            font-weight: 600;
-            cursor: pointer;
-            box-shadow: 0 2px 8px rgba(79,140,255,0.07);
-            transition: background 0.18s, box-shadow 0.18s;
-        }
-        button:hover {
-            background: linear-gradient(90deg, #2563eb 0%, #4f8cff 100%);
-            box-shadow: 0 4px 16px rgba(79,140,255,0.13);
-        }
-        
-        #loader {
-            margin-top: 20px;
-            color: #4f8cff;
-            font-weight: 600;
-            letter-spacing: 0.5px;
         }
         #audioPlayer {
             display: none;
             width: 100%;
             margin-top: 20px;
         }
-        @media (max-width: 600px) {
-            body {
-                max-width: 98vw;
-                padding: 10px 2vw 24px 2vw;
+        @media (max-width: 900px) {
+            .container {
+                flex-direction: column;
+                height: auto;
+                min-height: 100vh;
+                border-radius: 0;
             }
-            #result {
-                padding: 14px 6px;
+            .summary-panel, .chat-panel {
+                min-width: 0;
+                width: 100%;
+                border-radius: 0;
+                border-right: none;
+                border-bottom: 1.5px solid #e3e8ee;
             }
+            .chat-panel {
+                border-bottom: none;
+            }
+        }
+        @keyframes popIn {
+            0% { transform: scale(0.95); opacity: 0; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+        @keyframes fadeIn {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
         }
     </style>
 </head>
 <body>
-    <h1>Daily Email Insight</h1>
-    <div id="login-section" style="display:block; text-align:center;">
+    <div id="login-section" style="display:block; text-align:center; margin-top: 48px;">
         <button id="loginBtn" onclick="window.location.href='/login'">Login with Google</button>
     </div>
     <div id="app-section" style="display:none;">
-        <div id="chatHistory" style="min-height:120px; margin-bottom:18px;"></div>
-        <input type="text" id="textInput" placeholder="Type your message..." style="display:none;">
-        <button id="processBtn" onclick="processText()" style="display:none;">Send</button>
-        <button id="getSummaryBtn" onclick="getSummary()" style="display:none;">Summarize Inbox</button>
-        <button id="logoutBtn" onclick="logout()" style="display:none;">Logout</button>
-        <div id="loader" style="display:none;text-align:center;">Loading...</div>
-        <audio id="audioPlayer" style="display:none; width:100%; margin-top:10px;" controls></audio>
+        <div class="container">
+            <div class="summary-panel">
+                <div class="summary-title">Today's Inbox Summary</div>
+                <audio id="audioPlayer" style="display:none; width:100%; margin-bottom:14px;" controls></audio>
+                <div id="summaryLoader" style="display:none;text-align:center; margin-bottom:10px;">Getting summary...</div>
+                <div id="ttsLoader" style="display:none;text-align:center; margin-bottom:10px;">Getting audio...</div>
+                <div id="summaryContent">No summary yet.</div>
+                <div class="summary-actions">
+                    <button id="getSummaryBtn" onclick="getSummary()" style="display:none;">Summarise Email</button>
+                    <button id="logoutBtn" onclick="logout()" style="display:none;">Logout</button>
+                </div>
+            </div>
+            <div class="chat-panel">
+                <div class="chat-header">Chat & Query</div>
+                <div id="chatHistory"></div>
+                <div class="chat-input-row">
+                    <input type="text" id="textInput" placeholder="Type your message..." style="display:none;">
+                    <button id="processBtn" onclick="processText()" style="display:none;">Send</button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -117,10 +249,6 @@
                     isAuthenticated = false;
                     document.getElementById('login-section').style.display = 'block';
                     document.getElementById('app-section').style.display = 'none';
-                    document.getElementById('getSummaryBtn').style.display = 'none';
-                    document.getElementById('logoutBtn').style.display = 'none';
-                    document.getElementById('textInput').style.display = 'none';
-                    document.getElementById('processBtn').style.display = 'none';
                 }
             } catch(e) {
                 isAuthenticated = false;
@@ -128,7 +256,6 @@
             }
         }
 
-        
         function appendMessage(role, text) {
             const chatHistory = document.getElementById('chatHistory');
             const msgDiv = document.createElement('div');
@@ -141,16 +268,15 @@
 
         async function processText() {
             if (!isAuthenticated) {
-                document.getElementById('login-section').style.display = 'block';
-                document.getElementById('app-section').style.display = 'none';
                 alert('Please login first');
                 return;
             }
             const text = document.getElementById('textInput').value;
             if (!text.trim()) return;
+            
             appendMessage('user', text);
             document.getElementById('textInput').value = '';
-            document.getElementById('loader').style.display = 'block';
+            
             try {
                 const response = await fetch('/process', {
                     method: 'POST',
@@ -166,23 +292,30 @@
                 appendMessage('assistant', data.response);
             } catch (e) {
                 appendMessage('assistant', 'Sorry, there was an error.');
-            } finally {
-                document.getElementById('loader').style.display = 'none';
             }
         }
 
-
         async function getSummary() {
             if (!isAuthenticated) {
-                document.getElementById('login-section').style.display = 'block';
-                document.getElementById('app-section').style.display = 'none';
                 alert('Please login first');
                 return;
             }
-            document.getElementById('loader').style.display = 'block';
+            
+            const summaryContent = document.getElementById('summaryContent');
+            const getSummaryBtn = document.getElementById('getSummaryBtn');
+            const summaryLoader = document.getElementById('summaryLoader');
+            const ttsLoader = document.getElementById('ttsLoader');
+            const audioPlayer = document.getElementById('audioPlayer');
+            
+            getSummaryBtn.disabled = true;
+            summaryLoader.style.display = 'block';
+            ttsLoader.style.display = 'none';
+            audioPlayer.style.display = 'none';
+            summaryContent.textContent = '';
+            
             let summaryText = '';
             let buffer = '';
-            let msgDiv = null;
+            
             try {
                 const response = await fetch('/summary');
                 if (response.status === 401) {
@@ -190,72 +323,70 @@
                     window.location.reload();
                     return;
                 }
+                
                 const reader = response.body.getReader();
                 const decoder = new TextDecoder();
-                let done = false;
-                // Create a single assistant message div for streaming
-                msgDiv = appendMessage('assistant', '');
+                
                 async function typeText(text) {
                     for (let char of text) {
                         buffer += char;
-                        msgDiv.innerHTML = marked.parse(buffer);
+                        summaryContent.innerHTML = marked.parse(buffer);
                         await new Promise(res => setTimeout(res, 5));
                     }
                 }
-                while (!done) {
-                    const { value, done: doneReading } = await reader.read();
-                    done = doneReading;
-                    if (value) {
-                        const chunk = decoder.decode(value, { stream: true });
-                        summaryText += chunk;
-                        await typeText(chunk);
-                    }
+                
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    const chunk = decoder.decode(value, { stream: true });
+                    summaryText += chunk;
+                    await typeText(chunk);
                 }
-                // After streaming is done, call /tts
+                
+                // Hide summary loader, show TTS loader
+                summaryLoader.style.display = 'none';
+                
                 if (summaryText.trim()) {
+                    ttsLoader.style.display = 'block';
+                    
                     try {
                         const ttsResponse = await fetch('/tts', {
                             method: 'POST',
                             headers: {'Content-Type': 'application/json'},
                             body: JSON.stringify({text: summaryText})
                         });
+                        
                         if (ttsResponse.ok) {
                             const blob = await ttsResponse.blob();
                             const audioUrl = URL.createObjectURL(blob);
-                            const audioPlayer = document.getElementById('audioPlayer');
                             audioPlayer.src = audioUrl;
                             audioPlayer.style.display = 'block';
                             audioPlayer.load();
                             audioPlayer.play();
-                        } else {
-                            document.getElementById('audioPlayer').style.display = 'none';
                         }
                     } catch (e) {
-                        document.getElementById('audioPlayer').style.display = 'none';
+                        console.error('TTS error:', e);
+                    } finally {
+                        ttsLoader.style.display = 'none';
                     }
                 } else {
-                    if (msgDiv) msgDiv.innerHTML = marked.parse('No summary available.');
-                    document.getElementById('audioPlayer').style.display = 'none';
+                    summaryContent.innerHTML = marked.parse('No summary available.');
                 }
             } catch (e) {
-                if (msgDiv) msgDiv.innerHTML = marked.parse('Error fetching summary.');
+                summaryContent.innerHTML = marked.parse('Error fetching summary.');
+                summaryLoader.style.display = 'none';
+                ttsLoader.style.display = 'none';
             } finally {
-                document.getElementById('loader').style.display = 'none';
+                getSummaryBtn.disabled = false;
             }
         }
 
         function logout() {
             fetch('/logout').then(() => {
-                isAuthenticated = false;
-                document.getElementById('login-section').style.display = 'block';
-                document.getElementById('app-section').style.display = 'none';
-                document.getElementById('getSummaryBtn').style.display = 'none';
-                document.getElementById('logoutBtn').style.display = 'none';
-                document.getElementById('textInput').style.display = 'none';
-                document.getElementById('processBtn').style.display = 'none';
+                window.location.reload();
             });
         }
-
 
         document.addEventListener('DOMContentLoaded', function() {
             checkAuth();
