@@ -1,18 +1,23 @@
+import base64
+from datetime import datetime, timezone
 
-
-import os
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
-from datetime import datetime, timezone
-import base64
-
+from google.auth.exceptions import RefreshError
+from fastapi import HTTPException
 
 
 async def get_daily_email(creds: Credentials):
-    service = build('gmail', 'v1', credentials=creds)
-    today = datetime.now(timezone.utc).strftime('%Y/%m/%d')
-    query = f"after:{today}"
-    results = service.users().messages().list(userId='me', q=query).execute()
+    try:
+        service = build('gmail', 'v1', credentials=creds)
+        today = datetime.now(timezone.utc).strftime('%Y/%m/%d')
+        query = f"after:{today}"
+        results = service.users().messages().list(userId='me', q=query).execute()
+    except RefreshError as e:
+        raise HTTPException(
+            status_code=401, 
+            detail="Authentication token expired or invalid. Please re-authenticate."
+        )
     messages = results.get('messages', [])
 
     email_texts = []
@@ -39,3 +44,5 @@ async def get_daily_email(creds: Credentials):
 
     return email_texts
 
+def get_service(creds: Credentials):
+    return build('gmail', 'v1', credentials=creds)
