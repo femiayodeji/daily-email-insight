@@ -56,7 +56,6 @@ coverage.xml
 
 # dotenv
 .env
-.env.*
 
 # Docker
 *.pid
