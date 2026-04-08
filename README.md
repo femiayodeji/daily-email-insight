@@ -52,6 +52,8 @@ Edit `.env` and set:
 - `GEMINI_API_KEY` (from Google AI Studio)
 - `SECRET_KEY` (any random string)
 
+For Docker, you can either mount `credentials.json` into the container as this repo's compose file does, or provide a base64-encoded `CREDENTIALS_JSON` environment variable. When `CREDENTIALS_JSON` is set, the app writes it to a writable temporary path inside the container instead of overwriting the mounted file.
+
 ### 5. Build and Run with Docker
 
 ```

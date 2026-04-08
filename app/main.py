@@ -1,7 +1,6 @@
 import os
 import uuid
 import base64
-import json
 from io import BytesIO
 from contextlib import asynccontextmanager
 
@@ -20,11 +19,12 @@ from app.session_service import chat_history
 
 @asynccontextmanager
 async def lifespan(app):
-    # Startup: create credentials.json from environment variable
+    # Startup: materialize OAuth client secrets only when provided via env.
     creds = os.getenv("CREDENTIALS_JSON")
     if creds:
         decoded = base64.b64decode(creds).decode()
-        with open("credentials.json", "w") as f:
+        os.makedirs(os.path.dirname(GOOGLE_CLIENT_SECRETS) or ".", exist_ok=True)
+        with open(GOOGLE_CLIENT_SECRETS, "w") as f:
             f.write(decoded)
     yield
 
