@@ -1,6 +1,8 @@
 import os
 import uuid
 import base64
+import time
+import logging
 from io import BytesIO
 from contextlib import asynccontextmanager
 
@@ -12,10 +14,18 @@ from starlette.middleware.sessions import SessionMiddleware
 from app.config import *
 from app.gauth import get_credentials, get_flow, verify_credentials
 from app.gmail_service import get_daily_email, get_service
-from app.llm_service import stream_generate_content, create_summary_prompt, create_query_prompt
+from app.llm_service import (
+    stream_generate_content,
+    create_summary_prompt,
+)
+from app.agent_service import stream_agent_response, select_tool_for_query
 from app.tts_service import use_gtts
 from app.vector_service import embed_and_store_emails, query_similar_emails
 from app.session_service import chat_history
+
+
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(app):
@@ -62,13 +72,15 @@ async def callback(request: Request, code: str):
     flow = get_flow()
     flow.fetch_token(code=code)
     credentials = flow.credentials
+    client_config = flow.client_config or {}
+    client_info = client_config.get('installed', {})
     request.session['credentials'] = {
-        'token': credentials.token,
-        'refresh_token': credentials.refresh_token,
-        'token_uri': credentials.token_uri,
-        'client_id': credentials.client_id,
-        'client_secret': credentials.client_secret,
-        'scopes': credentials.scopes
+        'token': getattr(credentials, 'token', None),
+        'refresh_token': getattr(credentials, 'refresh_token', None),
+        'token_uri': getattr(credentials, 'token_uri', None) or client_info.get('token_uri'),
+        'client_id': client_info.get('client_id', ''),
+        'client_secret': client_info.get('client_secret', ''),
+        'scopes': getattr(credentials, 'scopes', SCOPES)
     }
     return RedirectResponse(url='/')
 
@@ -76,15 +88,24 @@ async def callback(request: Request, code: str):
 @app.get("/summary")
 async def summary(request: Request, creds: Credentials = Depends(get_credentials)):
     try:
-        email_texts = await get_daily_email(creds)
+        email_texts = get_daily_email(creds)
         
         embed_and_store_emails(email_texts)
         
         prompt = create_summary_prompt(email_texts)
 
+        async def summary_stream():
+            async for chunk in stream_generate_content(prompt):
+                yield chunk
+
         return StreamingResponse(
-            stream_generate_content(prompt),
-            media_type="text/plain"
+            summary_stream(),
+            media_type="text/plain; charset=utf-8",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "Connection": "keep-alive",
+                "X-Accel-Buffering": "no",
+            },
         )
     except Exception as e:
         if "Authentication token expired" in str(e) or "invalid_grant" in str(e):
@@ -105,7 +126,7 @@ async def text_to_speech(request: Request):
 
 
 @app.post("/process")
-async def process_text(request: Request):
+async def process_text(request: Request, creds: Credentials = Depends(get_credentials)):
     data = await request.json()
     user_query = data.get('text', '')
     
@@ -117,26 +138,52 @@ async def process_text(request: Request):
         session_id = str(uuid.uuid4())
         request.session['session_id'] = session_id
     
+    try:
+        selected_tool = select_tool_for_query(user_query)
+    except Exception:
+        selected_tool = "answer_question"
     relevant_emails = query_similar_emails(user_query, top_k=5)
-    
-    if not relevant_emails:
-        return {"response": "No emails found. Please generate a summary first."}
-    
+    auto_loaded_emails = False
+
+    if not relevant_emails and selected_tool != "chat":
+        email_texts = get_daily_email(creds)
+        if email_texts:
+            embed_and_store_emails(email_texts)
+            relevant_emails = query_similar_emails(user_query, top_k=5)
+            auto_loaded_emails = True
+
     history_context = chat_history.format_history(session_id, max_messages=6)
     chat_history.add_message(session_id, "user", user_query)
-    
-    prompt = create_query_prompt(relevant_emails, user_query, history_context)
-    
-    async def stream_and_save():
-        chunks = []
-        async for chunk in stream_generate_content(prompt):
-            chunks.append(chunk)
+
+    async def stream_response():
+        started_at = time.perf_counter()
+
+        response_text = ""
+        async for chunk in stream_agent_response(
+            user_query,
+            relevant_emails,
+            history_context,
+            selected_tool=selected_tool,
+        ):
+            response_text += chunk
             yield chunk
-        chat_history.add_message(session_id, "assistant", "".join(chunks))
+        
+        chat_history.add_message(session_id, "assistant", response_text)
+        
+        latency_ms = int((time.perf_counter() - started_at) * 1000)
+        logger.info(
+            "agent_process tool=%s auto_loaded=%s user_query=%s latency_ms=%s session_id=%s",
+            selected_tool,
+            auto_loaded_emails,
+            user_query[:50],
+            latency_ms,
+            session_id,
+        )
     
     return StreamingResponse(
-        stream_and_save(),
-        media_type="text/plain"
+        stream_response(),
+        media_type="text/plain",
+        headers={"X-Agent-Tool": selected_tool},
     )
 
 

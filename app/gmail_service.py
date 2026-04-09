@@ -7,7 +7,7 @@ from google.auth.exceptions import RefreshError
 from fastapi import HTTPException
 
 
-async def get_daily_email(creds: Credentials):
+def get_daily_email(creds: Credentials):
     try:
         service = build('gmail', 'v1', credentials=creds)
         today = datetime.now(timezone.utc).strftime('%Y/%m/%d')
