@@ -180,13 +180,28 @@
             color: #2563eb;
         }
 
-        #processLoader {
-            display: none;
-            margin: 8px 32px 0 32px;
-            font-size: 0.86rem;
-            color: #2563eb;
-            font-weight: 600;
-        }
+            .processing-indicator {
+                align-self: flex-start;
+                background: #fff;
+                color: #2563eb;
+                border: 1.5px dashed #c7d2fe;
+                border-radius: 18px;
+                padding: 10px 16px;
+                font-size: 0.86rem;
+                font-weight: 600;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+            }
+
+            .processing-pulse {
+                display: inline-block;
+                width: 8px;
+                height: 8px;
+                border-radius: 999px;
+                background: #2563eb;
+                animation: pulse 1s ease-in-out infinite;
+            }
 
         #chatHistory {
             flex: 1;
@@ -332,6 +347,12 @@
             0%   { opacity: 0; }
             100% { opacity: 1; }
         }
+
+        @keyframes pulse {
+            0%   { transform: scale(0.8); opacity: 0.35; }
+            50%  { transform: scale(1.1); opacity: 1; }
+            100% { transform: scale(0.8); opacity: 0.35; }
+        }
     </style>
 </head>
 <body>
@@ -342,7 +363,7 @@
         <div class="container">
             <div class="summary-panel">
                 <div class="summary-title">Today's Inbox Summary</div>
-                <audio id="audioPlayer" style="display:none;" controls></audio>
+                <audio id="audioPlayer" style="display:none;"></audio>
                 <div id="summaryLoader" style="display:none; text-align:center; margin-bottom:10px;">Getting summary...</div>
                 <div id="ttsLoader"     style="display:none; text-align:center; margin-bottom:10px;">Getting audio...</div>
                 <div id="summaryContent">No summary yet.</div>
@@ -353,11 +374,11 @@
             </div>
             <div class="chat-panel">
                 <div class="chat-header">Chat &amp; Query</div>
-                <div id="processLoader">Processing...</div>
                 <div id="chatHistory"></div>
                 <div class="chat-input-row">
                     <input  type="text" id="textInput"  placeholder="Type your message..." style="display:none;">
                     <button id="processBtn" onclick="processText()" style="display:none;">Send</button>
+                    <button id="interruptBtn" onclick="muteAudio()" style="display:none; margin-left:8px; background:#fff0f0; color:#e11d48; border:1.5px solid #e11d48; border-radius:8px; padding: 13px 16px; font-weight:600; cursor:pointer;">Mute</button>
                 </div>
             </div>
         </div>
@@ -365,6 +386,253 @@
 
     <script>
         let isAuthenticated = false;
+        let voiceSocket = null;
+        let voiceReady = false;
+        let activeTurnId = null;
+        let activeAssistantDiv = null;
+        let activeTurnBuffer = '';
+        let activeSelectedTool = '';
+        let pendingAudioMeta = [];
+        let audioQueue = [];
+        let isAudioPlaying = false;
+        let currentAudioUrl = null;
+
+        function createTurnId() {
+            if (window.crypto && window.crypto.randomUUID) {
+                return window.crypto.randomUUID();
+            }
+            return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+        }
+
+        async function connectVoiceSocket() {
+            if (voiceSocket && (voiceSocket.readyState === WebSocket.OPEN || voiceSocket.readyState === WebSocket.CONNECTING)) {
+                return;
+            }
+
+            const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
+            voiceSocket = new WebSocket(`${protocol}://${window.location.host}/ws/voice`);
+            voiceSocket.binaryType = 'blob';
+
+            voiceSocket.onopen = () => {
+                voiceReady = false;
+            };
+
+            voiceSocket.onmessage = async (event) => {
+                if (typeof event.data === 'string') {
+                    try {
+                        const payload = JSON.parse(event.data);
+                        await handleVoiceJson(payload);
+                    } catch (e) {
+                        console.error('WebSocket JSON parse error:', e);
+                    }
+                    return;
+                }
+
+                await handleVoiceAudioChunk(event.data);
+            };
+
+            voiceSocket.onclose = () => {
+                voiceReady = false;
+                voiceSocket = null;
+            };
+
+            voiceSocket.onerror = (e) => {
+                console.error('WebSocket error:', e);
+            };
+        }
+
+        function disconnectVoiceSocket() {
+            if (voiceSocket) {
+                voiceSocket.close();
+            }
+            voiceReady = false;
+            voiceSocket = null;
+            clearAudioPlaybackQueue();
+        }
+
+        function sendVoiceMessage(payload) {
+            if (!voiceSocket || voiceSocket.readyState !== WebSocket.OPEN) return false;
+            voiceSocket.send(JSON.stringify(payload));
+            return true;
+        }
+
+        async function waitForVoiceReady(timeoutMs = 2000) {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < timeoutMs) {
+                if (voiceSocket && voiceSocket.readyState === WebSocket.OPEN && voiceReady) {
+                    return true;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 40));
+            }
+            return false;
+        }
+
+        async function handleVoiceJson(payload) {
+            const processBtn = document.getElementById('processBtn');
+            const summaryContent = document.getElementById('summaryContent');
+
+            if (payload.type === 'ready') {
+                voiceReady = true;
+                return;
+            }
+
+            if (payload.type === 'turn_started' && payload.turn_id === activeTurnId) {
+                activeSelectedTool = payload.selected_tool || '';
+                return;
+            }
+
+            if (payload.type === 'llm_delta' && payload.turn_id === activeTurnId) {
+                const processingNode = document.getElementById('activeProcessingIndicator');
+                if (processingNode) {
+                    processingNode.remove();
+                }
+
+                if (!activeAssistantDiv) {
+                    activeAssistantDiv = appendMessage('assistant', '');
+                }
+                activeTurnBuffer += payload.delta || '';
+                if (activeAssistantDiv) {
+                    if (activeSelectedTool === 'summarize_emails') {
+                        summaryContent.innerHTML = marked.parse(stripToolBadge(activeTurnBuffer));
+                    } else {
+                        activeAssistantDiv.innerHTML = marked.parse(activeTurnBuffer);
+                    }
+                }
+                return;
+            }
+
+            if (payload.type === 'tts_chunk_meta' && payload.turn_id === activeTurnId) {
+                pendingAudioMeta.push(payload);
+                return;
+            }
+
+            if (payload.type === 'llm_done' && payload.turn_id === activeTurnId) {
+                processBtn.disabled = false;
+                const processingNode = document.getElementById('activeProcessingIndicator');
+                if (processingNode) {
+                    processingNode.remove();
+                }
+
+                if (activeSelectedTool === 'summarize_emails' && activeAssistantDiv) {
+                    activeAssistantDiv.innerHTML = marked.parse('I added your email summary to the summary panel on the left.');
+                }
+                activeTurnId = null;
+                activeSelectedTool = '';
+                activeTurnBuffer = '';
+                activeAssistantDiv = null;
+                return;
+            }
+
+            if (payload.type === 'interrupted') {
+                if (payload.turn_id && activeTurnId && payload.turn_id !== activeTurnId) {
+                    return;
+                }
+                processBtn.disabled = false;
+                const processingNode = document.getElementById('activeProcessingIndicator');
+                if (processingNode) {
+                    processingNode.remove();
+                }
+                activeTurnId = null;
+                activeSelectedTool = '';
+                activeTurnBuffer = '';
+                activeAssistantDiv = null;
+                return;
+            }
+
+            if (payload.type === 'error') {
+                if (payload.turn_id && payload.turn_id !== activeTurnId) {
+                    return;
+                }
+
+                if (payload.stage === 'tts') {
+                    console.warn('TTS segment error:', payload.message || payload);
+                    return;
+                }
+
+                console.error('Voice pipeline error:', payload.message || payload);
+                processBtn.disabled = false;
+                const processingNode = document.getElementById('activeProcessingIndicator');
+                if (processingNode) {
+                    processingNode.remove();
+                }
+                if (activeAssistantDiv) {
+                    activeAssistantDiv.innerHTML = marked.parse('Sorry, there was an error in the streaming voice pipeline.');
+                }
+            }
+        }
+
+        async function handleVoiceAudioChunk(blob) {
+            if (!activeTurnId) return;
+            if (!pendingAudioMeta.length) return;
+
+            const processingNode = document.getElementById('activeProcessingIndicator');
+            if (processingNode) {
+                processingNode.remove();
+            }
+
+            const meta = pendingAudioMeta.shift();
+            if (!meta || meta.turn_id !== activeTurnId) return;
+
+            const audioUrl = URL.createObjectURL(blob);
+            audioQueue.push({ audioUrl, meta });
+            await playNextAudioChunk();
+        }
+
+        async function playNextAudioChunk() {
+            const audioPlayer = document.getElementById('audioPlayer');
+            if (isAudioPlaying || !audioQueue.length) return;
+
+            isAudioPlaying = true;
+            document.getElementById('interruptBtn').style.display = 'inline-block';
+            const item = audioQueue.shift();
+            currentAudioUrl = item.audioUrl;
+
+            audioPlayer.src = currentAudioUrl;
+            audioPlayer.load();
+
+            const cleanup = () => {
+                if (currentAudioUrl) {
+                    URL.revokeObjectURL(currentAudioUrl);
+                }
+                currentAudioUrl = null;
+                isAudioPlaying = false;
+                if (!audioQueue.length) {
+                    document.getElementById('interruptBtn').style.display = 'none';
+                }
+                playNextAudioChunk();
+            };
+
+            audioPlayer.onended = cleanup;
+            audioPlayer.onerror = cleanup;
+
+            try {
+                await audioPlayer.play();
+            } catch (e) {
+                cleanup();
+            }
+        }
+
+        function clearAudioPlaybackQueue() {
+            const audioPlayer = document.getElementById('audioPlayer');
+            pendingAudioMeta = [];
+
+            for (const item of audioQueue) {
+                URL.revokeObjectURL(item.audioUrl);
+            }
+            audioQueue = [];
+
+            if (currentAudioUrl) {
+                URL.revokeObjectURL(currentAudioUrl);
+                currentAudioUrl = null;
+            }
+
+            audioPlayer.pause();
+            audioPlayer.removeAttribute('src');
+            audioPlayer.load();
+
+            isAudioPlaying = false;
+            document.getElementById('interruptBtn').style.display = 'none';
+        }
 
         async function checkAuth() {
             try {
@@ -377,15 +645,19 @@
                     document.getElementById('logoutBtn').style.display     = 'inline-block';
                     document.getElementById('textInput').style.display     = 'inline-block';
                     document.getElementById('processBtn').style.display    = 'inline-block';
+                    document.getElementById('interruptBtn').style.display  = 'none';
+                    await connectVoiceSocket();
                 } else {
                     isAuthenticated = false;
                     document.getElementById('login-section').style.display = 'block';
                     document.getElementById('app-section').style.display   = 'none';
+                    disconnectVoiceSocket();
                 }
             } catch (e) {
                 isAuthenticated = false;
                 document.getElementById('login-section').style.display = 'block';
                 document.getElementById('app-section').style.display   = 'none';
+                disconnectVoiceSocket();
             }
         }
 
@@ -411,7 +683,6 @@
             if (!cleanedText) return;
 
             ttsLoader.style.display   = 'block';
-            audioPlayer.style.display = 'none';
 
             try {
                 const ttsResponse = await fetch('/tts', {
@@ -425,7 +696,12 @@
                 const blob = await ttsResponse.blob();
                 const audioUrl = URL.createObjectURL(blob);
                 audioPlayer.src = audioUrl;
-                audioPlayer.style.display = 'block';
+                audioPlayer.onended = () => {
+                    URL.revokeObjectURL(audioUrl);
+                };
+                audioPlayer.onerror = () => {
+                    URL.revokeObjectURL(audioUrl);
+                };
                 audioPlayer.load();
                 audioPlayer.play();
             } catch (e) {
@@ -473,58 +749,67 @@
             const text = document.getElementById('textInput').value;
             if (!text.trim()) return;
 
-            const processLoader = document.getElementById('processLoader');
             const processBtn = document.getElementById('processBtn');
-            processLoader.style.display = 'block';
+
+            if (!voiceSocket || voiceSocket.readyState !== WebSocket.OPEN || !voiceReady) {
+                await connectVoiceSocket();
+            }
+
+            const ready = await waitForVoiceReady();
+            if (!ready) {
+                alert('Voice channel not ready yet. Please try again.');
+                return;
+            }
+
+            if (activeTurnId) {
+                sendVoiceMessage({ type: 'interrupt', turn_id: activeTurnId });
+                clearAudioPlaybackQueue();
+            }
+
             processBtn.disabled = true;
 
             appendMessage('user', text);
             document.getElementById('textInput').value = '';
 
             const chatHistory = document.getElementById('chatHistory');
-            const msgDiv = document.createElement('div');
-            msgDiv.className = 'assistant';
-            chatHistory.appendChild(msgDiv);
+            const existingProcessing = document.getElementById('activeProcessingIndicator');
+            if (existingProcessing) {
+                existingProcessing.remove();
+            }
+            const processingDiv = document.createElement('div');
+            processingDiv.id = 'activeProcessingIndicator';
+            processingDiv.className = 'processing-indicator';
+            processingDiv.innerHTML = '<span>Processing</span><span class="processing-pulse"></span>';
+            chatHistory.appendChild(processingDiv);
+            chatHistory.scrollTop = chatHistory.scrollHeight;
+
+            activeTurnId = createTurnId();
+            activeAssistantDiv = null;
+            activeTurnBuffer = '';
+            activeSelectedTool = '';
+            pendingAudioMeta = [];
 
             try {
-                const response = await fetch('/process', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ text })
-                });
-                if (response.status === 401) {
-                    alert('Session expired or invalid. Please login again.');
-                    isAuthenticated = false;
-                    document.getElementById('login-section').style.display = 'block';
-                    document.getElementById('app-section').style.display   = 'none';
-                    return;
-                }
-
-                const selectedTool = response.headers.get('x-agent-tool') || '';
-                const shouldMirrorToSummary = selectedTool === 'summarize_emails';
-                const summaryContent = document.getElementById('summaryContent');
-                let summaryMirrorBuffer = '';
-
-                await streamToElement(response, msgDiv, {
-                    scrollContainer: chatHistory,
-                    render: !shouldMirrorToSummary,
-                    onChunk: (chunk) => {
-                        if (!shouldMirrorToSummary) return;
-                        summaryMirrorBuffer += chunk;
-                        summaryContent.innerHTML = marked.parse(stripToolBadge(summaryMirrorBuffer));
-                    }
+                const sent = sendVoiceMessage({
+                    type: 'user_text',
+                    turn_id: activeTurnId,
+                    text,
                 });
 
-                if (shouldMirrorToSummary) {
-                    msgDiv.innerHTML = marked.parse('I added your email summary to the summary panel on the left.');
-                    await playSummaryAudio(summaryMirrorBuffer);
+                if (!sent) {
+                    processingDiv.remove();
+                    appendMessage('assistant', 'Voice websocket is not connected.');
+                    processBtn.disabled = false;
                 }
             } catch (e) {
-                msgDiv.innerHTML = marked.parse('Sorry, there was an error.');
-            } finally {
-                processLoader.style.display = 'none';
+                processingDiv.remove();
+                appendMessage('assistant', 'Sorry, there was an error.');
                 processBtn.disabled = false;
             }
+        }
+
+        function muteAudio() {
+            clearAudioPlaybackQueue();
         }
 
         async function getSummary() {
@@ -573,6 +858,7 @@
         }
 
         function logout() {
+            disconnectVoiceSocket();
             fetch('/logout').then(() => { window.location.reload(); });
         }
 

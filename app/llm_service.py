@@ -1,4 +1,5 @@
 import asyncio
+from typing import AsyncGenerator
 from app.config import GEMINI_API_KEY, GEMINI_MODEL
 import google.generativeai as genai
 from google.api_core.exceptions import ResourceExhausted
@@ -8,7 +9,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 model = genai.GenerativeModel(GEMINI_MODEL)
 
 
-async def stream_generate_content(query_request: str, max_retries: int = 3):
+async def stream_generate_content(query_request: str, max_retries: int = 3) -> AsyncGenerator[str, None]:
     for attempt in range(max_retries):
         try:
             stream = model.generate_content(query_request, stream=True)
